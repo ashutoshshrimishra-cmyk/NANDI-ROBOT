@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nandi ROBOT · Spherical robot 3D model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#142033;--mut:#5b6b80;--line:#d3dde9;--acc:#1f7ae0;--accs:#dcebfd;--pan:rgba(255,255,255,.8);--bad:#d4262c}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;font:13px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:radial-gradient(120% 90% at 50% 25%,#f7faff,#dbe5f1)}
+#cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#side{position:fixed;left:14px;top:14px;bottom:14px;width:330px;overflow:auto;padding:14px;z-index:5;background:var(--pan);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 50px rgba(25,55,105,.16);transition:transform .6s cubic-bezier(.2,.85,.25,1),opacity .4s;animation:in .8s cubic-bezier(.2,.85,.25,1) both}
+@keyframes in{from{transform:translateX(-40px);opacity:0}}
+body.min #side{transform:translateX(calc(-100% - 24px));opacity:0;pointer-events:none}
+#tab{position:fixed;left:14px;top:14px;z-index:4;box-shadow:0 8px 24px rgba(25,55,105,.18);opacity:0;pointer-events:none;transform:translateX(-14px);transition:opacity .4s .2s,transform .4s .2s}
+body.min #tab{opacity:1;pointer-events:auto;transform:none}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+h1{font-size:17px;font-weight:600;letter-spacing:-.01em}header p{color:var(--mut);font-size:12px}
+button{font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:5px 10px;cursor:pointer;transition:background .15s,border-color .15s}
+button:hover{border-color:var(--acc)}button.on{background:var(--accs);border-color:var(--acc)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+#min{width:32px;height:32px;padding:0;border-radius:50%;font-size:18px;line-height:1}
+#vw{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:12px 0 6px}
+.chk{display:flex;gap:4px;align-items:center;color:var(--mut)}
+.lg{display:flex;flex-wrap:wrap;gap:12px;color:var(--mut);font-size:12px}.lg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+.grp{margin:14px 0 0}.grp h3{font-size:12px;font-weight:600;color:var(--mut);margin-bottom:4px}
+.sl{display:grid;gap:7px}
+.row{display:grid;grid-template-columns:1fr auto;gap:3px 8px;color:var(--mut)}
+.row label{grid-area:1/1}.row output{grid-area:1/2;color:var(--ink);font-weight:500}.row input{grid-area:2/1/3/3}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;margin:8px 0;background:linear-gradient(to right,var(--acc) var(--pct,50%),#cdd8e6 var(--pct,50%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--acc);cursor:pointer}
+input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--acc);cursor:pointer}
+#cards{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:14px 0}
+.card{background:#fff;border:1px solid var(--line);border-radius:11px;padding:7px 9px}
+.card small{display:block;font-size:11.5px;color:var(--mut)}.card b{display:block;font-size:15px;font-weight:600}.bad{color:var(--bad)}
+#pt{display:flex;flex-wrap:wrap;gap:5px}#info{color:var(--mut);min-height:40px;margin:8px 0}
+#out img,#out video{width:100%;border-radius:12px;margin-top:6px}
+@media(max-width:760px){#side{left:8px;right:8px;top:auto;bottom:8px;width:auto;height:46vh}body.min #side{transform:translateY(calc(100% + 24px))}#tab{top:auto;bottom:14px;left:14px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body>
+<h2 style="position:absolute;width:1px;height:1px;overflow:hidden">Interactive 3D model of the pendulum-driven spherical robot with adjustable design parameters and live mass, centre of gravity and ramp torque readouts</h2>
+<canvas id="cv"></canvas>
+<button id="tab" aria-label="Open parameters panel">Parameters</button>
+<aside id="side"><header><div><h1>Nandi ROBOT</h1><p>Spherical robot, live model</p></div><button id="min" aria-label="Minimize panel" aria-expanded="true" title="Minimize (P)">‹</button></header>
+<div id="vw"></div>
+<div class="lg"><span><i style="background:#e5484d"></i>X forward</span><span><i style="background:#2fa37a"></i>Y along axle</span><span><i style="background:#3b82f6"></i>Z up</span></div>
+<div id="sls"></div><div id="cards"></div><div id="pt"></div><div id="info"></div><div id="out"></div></aside>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i);
+if(typeof THREE==='undefined'){$('info').textContent='The 3D library could not load. Check your connection and reload.';throw new Error('no three');}
+let dirty=false,kick=30,drive=true,ox=0,oy=0,spin=0,travel=0,spinM,grid;
+const cfg=[['D','Outer diameter','ft',2,2.5,0.01,2.25,2],['T','Shell thickness','mm',2,6,0.5,3,1],['POD','Camera pod outside','mm',0,200,1,75,0],['PHI','Pendulum swing','°',-75,75,1,0,0],['S','Slider offset','cm',-15,15,0.5,0,1],['L','Pendulum CoM depth','m',0.18,0.28,0.001,0.233,3],['MB','Fixed ballast','kg',2,6,0.1,4,1],['MS','Sliding mass','kg',1,5,0.1,3,1],['TH','Ramp slope','°',0,25,1,15,0],['A','Acceleration','m/s²',0,1.5,0.1,0.5,1]];
+const P={},byk={};cfg.forEach(c=>{P[c[0]]=c[6];byk[c[0]]=c});
+const pct=i=>i.style.setProperty('--pct',((i.value-i.min)/(i.max-i.min)*100)+'%');
+[['Shell and camera pod',['D','T','POD']],['Pendulum',['PHI','S','L','MB','MS']],['Ramp case',['TH','A']]].forEach(g=>{
+const w=document.createElement('div');w.className='grp';w.innerHTML='<h3>'+g[0]+'</h3><div class="sl"></div>';$('sls').appendChild(w);
+g[1].forEach(k=>{const c=byk[k],d=document.createElement('div');d.className='row';d.innerHTML='<label for="'+k+'">'+c[1]+'</label><input type="range" id="'+k+'" min="'+c[3]+'" max="'+c[4]+'" step="'+c[5]+'" value="'+c[6]+'"><output id="o'+k+'"></output>';w.querySelector('.sl').appendChild(d);const inp=d.querySelector('input');pct(inp);inp.addEventListener('input',e=>{P[k]=parseFloat(e.target.value);pct(inp);dirty=true})})});
+['Total mass','Shell mass','Centre of gravity','Overall size','Ramp torque demand','Pendulum capacity','Required swing','Camera pod outside','Slider clearance'].forEach((n,i)=>{const d=document.createElement('div');d.className='card';d.innerHTML='<small>'+n+'</small><b id="v'+i+'"></b><small id="s'+i+'"></small>';$('cards').appendChild(d)});
+const PK=['shell','band','axle','hub','pod','motor','battery','elec','ballast','yoke','slide','cg'];
+const PN=['Shell','Grip band','Hollow axle','Pole hubs','Camera pod','Motor + belt','Battery','Electronics','Steel ballast','Yoke plates','Sliding mass','CG'];
+let sel=null,parts={},mats=[],cp=[],cross=false,lastKey='',root,pend,slideMesh,cgMesh,cgLine,last={};
+const cur={phi:0,s:0};
+const info0='Drag to rotate. Scroll or pinch to zoom. Double-click resets the view. Pick a part to isolate it and see its X, Y, Z size.';
+PK.forEach((k,i)=>{const b=document.createElement('button');b.textContent=PN[i];b.dataset.k=k;b.onclick=()=>{sel=sel===k?null:k;[...$('pt').children].forEach(x=>x.classList.toggle('on',x.dataset.k===sel));hl();upInfo()};$('pt').appendChild(b)});
+const V={iso:[40,24,1.55,false],cross:[-90,6,1.35,true],side:[90,4,1.55,false],top:[20,86,1.6,false]};
+const vw=$('vw');
+[['iso','Isometric'],['cross','Cross-section'],['side','Side'],['top','Top']].forEach(a=>{const b=document.createElement('button');b.textContent=a[1];b.dataset.v=a[0];b.onclick=()=>setView(a[0]);vw.appendChild(b)});
+vw.insertAdjacentHTML('beforeend','<button id="zi">Zoom in</button><button id="zo">Zoom out</button><label class="chk"><input type="checkbox" id="shw" checked>Show shell</label><label class="chk">Shell fill<input type="range" id="sop" min="0.1" max="0.8" step="0.05" value="0.35" style="width:84px;flex:none"></label><label class="chk"><input type="checkbox" id="auto">Auto rotate</label><button id="png">Save image</button><button id="rec">Record video</button><button id="rst">Reset parameters</button><button id="drv" class="on">Drive</button><button id="rmp">Use ramp swing</button>');
+const auto=$('auto'),cv=$('cv'),sop=()=>parseFloat($('sop').value);
+const ren=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true,preserveDrawingBuffer:true});
+ren.localClippingEnabled=true;ren.setPixelRatio(Math.min(1.75,window.devicePixelRatio||1));
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(32,1.7,0.05,20),tgt=new THREE.Vector3(0,-0.02,0);
+{const c=document.createElement('canvas');c.width=512;c.height=256;const g=c.getContext('2d'),gg=g.createLinearGradient(0,0,0,256);gg.addColorStop(0,'#cfe3ff');gg.addColorStop(.5,'#fff');gg.addColorStop(1,'#98a7bb');g.fillStyle=gg;g.fillRect(0,0,512,256);g.fillStyle='#fff';g.fillRect(60,50,90,50);g.fillRect(330,40,120,60);const t=new THREE.CanvasTexture(c);t.mapping=THREE.EquirectangularReflectionMapping;const pg=new THREE.PMREMGenerator(ren);scene.environment=pg.fromEquirectangular(t).texture;pg.dispose()}
+scene.fog=new THREE.Fog(0xe7eef7,2.4,4.6);scene.add(new THREE.AmbientLight(0xffffff,0.6));
+const dl=new THREE.DirectionalLight(0xffffff,0.7);dl.position.set(1,2,1.2);scene.add(dl);
+const dl2=new THREE.DirectionalLight(0xffffff,0.25);dl2.position.set(-1,-0.5,-1);scene.add(dl2);
+root=new THREE.Group();scene.add(root);
+const plane=new THREE.Plane(new THREE.Vector3(1,0,0),0);
+let W=680,HH=380;
+function rs(){W=innerWidth;HH=innerHeight;ren.setSize(W,HH,false);cam.aspect=W/HH;cam.setViewOffset(W,HH,ox,oy,W,HH);cam.updateProjectionMatrix();kick=20}
+window.addEventListener('resize',rs);rs();
+const gScene=new THREE.Scene(),gc=new THREE.OrthographicCamera(-2,2,2,-2,0.1,30);
+function badge(t,col){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');x.fillStyle=col;x.beginPath();x.arc(64,64,54,0,7);x.fill();x.fillStyle='#fff';x.font='500 68px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(t,64,68);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,transparent:true}));s.renderOrder=5;return s}
+function axisObj(dir,hex){const g=new THREE.Group(),m=new THREE.MeshBasicMaterial({color:hex}),sh=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,1,12),m),hd=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.32,16),m);sh.position.y=0.5;hd.position.y=1.16;g.add(sh,hd);g.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir);return g}
+[[new THREE.Vector3(0,0,1),0xe5484d,'X','#e5484d'],[new THREE.Vector3(1,0,0),0x2fa37a,'Y','#2fa37a'],[new THREE.Vector3(0,1,0),0x3b82f6,'Z','#3b82f6']].forEach(a=>{gScene.add(axisObj(a[0],a[1]));const s=badge(a[2],a[3]);s.position.copy(a[0]).multiplyScalar(1.62);s.scale.set(0.78,0.78,1);gScene.add(s)});
+gScene.add(new THREE.Mesh(new THREE.SphereGeometry(0.11,16,12),new THREE.MeshBasicMaterial({color:0x888888})));
+function mk(col){const m=new THREE.MeshStandardMaterial({color:col,roughness:0.55,metalness:0.15,side:THREE.DoubleSide,clippingPlanes:cp});m.envMapIntensity=.5;m.userData={o:1,t:false};mats.push(m);return m}
+function mkShell(){const o=sop(),m=new THREE.MeshPhongMaterial({color:0xcfe8f8,specular:0xffffff,shininess:70,transparent:true,opacity:o,side:THREE.DoubleSide,depthWrite:false,clippingPlanes:cp});
+m.onBeforeCompile=s=>{s.fragmentShader=s.fragmentShader.replace('gl_FragColor = vec4( outgoingLight, diffuseColor.a );','float fr=pow(1.0-abs(dot(normalize(normal),normalize(vViewPosition))),2.5);gl_FragColor=vec4(mix(outgoingLight,vec3(0.32,0.62,0.86),fr),min(1.0,diffuseColor.a+fr*0.5));')};
+m.userData={o:o,t:true,shell:true};mats.push(m);return m}
+function mkb(col,op){const m=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op,side:THREE.DoubleSide});m.userData={o:op,t:true};mats.push(m);return m}
+function setClip(){cp.length=0;if(cross)cp.push(plane);mats.forEach(m=>{m.needsUpdate=true})}
+function hl(){for(const k in parts){const hit=k===sel||(k==='limit'&&sel==='pod');parts[k].forEach(m=>{const mt=m.material,u=mt.userData;if(!sel){mt.opacity=u.o;mt.transparent=u.t;if(mt.emissive)mt.emissive.setHex(0)}else if(hit){mt.transparent=true;mt.opacity=Math.min(1,Math.max(u.o,u.shell?0.45:0.6));if(mt.emissive)mt.emissive.setHex(0x222a33)}else{mt.transparent=true;mt.opacity=Math.min(u.o,0.1);if(mt.emissive)mt.emissive.setHex(0)}mt.needsUpdate=true})}if(cgMesh)cgMesh.scale.setScalar(sel==='cg'?1.7:1)}
+function applyShell(){const v=$('shw').checked;['shell','band'].forEach(k=>parts[k].forEach(m=>{m.visible=v}));parts.shell.forEach(m=>{m.material.userData.o=sop()})}
+function build(){
+[...root.children].forEach(c=>{root.remove(c);c.traverse(n=>{if(n.geometry)n.geometry.dispose();if(n.material)n.material.dispose()})});
+mats=[];parts={};PK.concat('limit').forEach(k=>{parts[k]=[]});
+const R=P.D*0.3048/2,L=P.L,yb=-(L+0.015),pod=P.POD/1000,H=Math.PI/2;
+const add=(k,geo,mat,x,y,z,par,rx,ry,rz)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);if(rx)m.rotation.x=rx;if(ry)m.rotation.y=ry;if(rz)m.rotation.z=rz;(par||root).add(m);parts[k].push(m);return m};
+const B=(w,h,d)=>new THREE.BoxGeometry(w,h,d),C=(r,len)=>new THREE.CylinderGeometry(r,r,len,28);
+add('shell',new THREE.SphereGeometry(R,64,40),mkShell(),0,0,0);
+add('band',new THREE.TorusGeometry(R,0.011,12,120),mk(0x3a3d44),0,0,0,null,0,H,0);spinM=add('band',new THREE.TorusGeometry(R*1.002,0.004,8,96),mk(0xe0306a),0,0,0);
+add('axle',C(0.0125,2*R+pod),mk(0xe2e4e8),pod/2,0,0,null,0,0,H);
+[-1,1].forEach(sx=>{add('hub',C(0.05,0.016),mk(0x8a8f99),sx*(R-0.012),0,0,null,0,0,H)});
+add('pod',B(0.03,0.045,0.045),mk(0x1d1f24),R+pod-0.015,0,0,null);
+add('pod',C(0.011,0.012),mk(0x4aa3df),R+pod-0.015,0,0.0285,null,H,0,0);
+add('limit',new THREE.RingGeometry(0.03,0.037,40),mkb(0xe5484d,0.55),R+0.1524,0,0,null,0,H,0);
+pend=new THREE.Group();root.add(pend);
+const sb=Math.cbrt(P.MB/4),sm=Math.cbrt(P.MS/3);
+[-1,1].forEach(sx=>{add('yoke',B(0.012,0.03-yb,0.12),mk(0x7e8794),sx*0.115,(0.03+yb)/2,0,pend)});
+add('yoke',B(0.25,0.01,0.12),mk(0x7e8794),0,yb,0,pend);
+const bh=0.07*sb,bt=yb+0.005+bh;
+add('ballast',B(0.18*sb,bh,0.1*sb),mk(0x4a4f57),0,yb+0.005+bh/2,0,pend);
+add('battery',B(0.16,0.065,0.11),mk(0xf0a030),0,bt+0.0325,0,pend);
+add('elec',B(0.14,0.035,0.1),mk(0x2f9e7a),0,bt+0.0825,0,pend);
+[-1,1].forEach(sx=>{add('motor',C(0.03,0.12),mk(0x1fb59a),sx*0.19,-0.09,0,pend,0,0,H);add('motor',C(0.045,0.02),mk(0x55606e),sx*0.265,0,0,pend,0,0,H);add('motor',C(0.015,0.02),mk(0x55606e),sx*0.265,-0.09,0,pend,0,0,H);[-1,1].forEach(sz=>{add('motor',B(0.012,0.09,0.004),mk(0x111111),sx*0.265,-0.045,sz*0.03,pend)})});
+add('slide',C(0.006,0.32),mk(0xb8c0cc),0,yb-0.005-0.02*sm,0,pend,0,0,H);
+slideMesh=add('slide',B(0.06*sm,0.04*sm,0.09*sm),mk(0x5b7fa6),0,yb-0.005-0.02*sm,0,pend);
+cgMesh=add('cg',new THREE.SphereGeometry(0.018,20,14),mk(0xe0306a),0,0,0);
+cgLine=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3)),new THREE.LineBasicMaterial({color:0xe0306a}));cgLine.frustumCulled=false;root.add(cgLine);
+grid=new THREE.GridHelper(4,40,0x8a99ad,0x8a99ad);grid.position.y=-R-0.002;grid.material.transparent=true;grid.material.opacity=0.4;grid.material.fog=true;root.add(grid);
+const bc=document.createElement('canvas');bc.width=bc.height=128;const b2=bc.getContext('2d'),rg=b2.createRadialGradient(64,64,4,64,64,62);rg.addColorStop(0,'rgba(20,40,80,.5)');rg.addColorStop(1,'rgba(20,40,80,0)');b2.fillStyle=rg;b2.fillRect(0,0,128,128);
+const shd=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(bc),transparent:true,depthWrite:false}));shd.rotation.x=-H;shd.position.y=-R-0.001;shd.scale.setScalar(R*3.4);root.add(shd);
+setClip();applyShell();hl();
+}
+function pose(){
+if(!last.M)return;
+pend.rotation.x=-cur.phi;slideMesh.position.x=cur.s;
+const x=last.mp*P.L*Math.sin(cur.phi)/last.M,y=P.MS*cur.s/last.M,z=-last.mp*P.L*Math.cos(cur.phi)/last.M;
+cgMesh.position.set(y,z,x);
+const a=cgLine.geometry.attributes.position;a.setXYZ(1,y,z,x);a.needsUpdate=true;
+}
+function cd(i,v,s,bad){const e=$('v'+i);e.textContent=v;e.className=bad?'bad':'';$('s'+i).textContent=s}
+function update(){
+const R=P.D*0.3048/2,t=P.T/1000,g=9.81,l=P.L;
+const shellM=4*Math.PI*R*R*t*1200,near=shellM+1.8,mp=P.MB+P.MS+5.8,M=near+mp;
+const phi=P.PHI*Math.PI/180,th=P.TH*Math.PI/180;
+const cgX=mp*l*Math.sin(phi)/M,cgY=P.MS*(P.S/100)/M,cgZ=-mp*l*Math.cos(phi)/M;
+const dem=M*g*R*Math.sin(th)+M*P.A*R+(2/3)*shellM*R*P.A+0.03*M*g*R*Math.cos(th);
+const cap=mp*g*l,ratio=dem/cap,sw=ratio<=1?Math.asin(ratio)*180/Math.PI:NaN;
+const mu=Math.tan(th)+P.A/(g*Math.cos(th));
+const sm=Math.cbrt(P.MS/3),clr=(R-t)-Math.hypot(Math.abs(P.S/100)+0.03*sm,l+0.02+0.04*sm);
+last={M,mp,shellM,cgX,cgY,cgZ,R,t,sw};
+const key=[P.D,P.POD,P.L,P.MB,P.MS].join();if(key!==lastKey){lastKey=key;build()}
+pose();
+cfg.forEach(c=>{$('o'+c[0]).textContent=P[c[0]].toFixed(c[7])+' '+c[2]});
+const dX=Math.round(2*R*1000),dY=Math.round(2*R*1000+P.POD);
+cd(0,M.toFixed(1)+' kg','Pendulum '+mp.toFixed(1)+' kg',false);
+cd(1,shellM.toFixed(1)+' kg','Near centre '+near.toFixed(1)+' kg',false);
+cd(2,'X '+Math.round(cgX*1000)+' · Y '+Math.round(cgY*1000)+' · Z '+Math.round(cgZ*1000),'mm from geometric centre',false);
+cd(3,dX+' × '+dY+' × '+dX+' mm','X forward × Y lateral × Z up',false);
+cd(4,dem.toFixed(1)+' N·m','Needs μ ≥ '+mu.toFixed(2),false);
+cd(5,cap.toFixed(1)+' N·m','m_p g l at 90°',false);
+cd(6,isNaN(sw)?'Over capacity':sw.toFixed(0)+'°','Software limit 60°',isNaN(sw)||sw>60);
+cd(7,P.POD+' mm','Limit 152 mm (0.5 ft)',P.POD>152.4);
+cd(8,Math.round(clr*1000)+' mm','Sliding mass to shell',clr<0);
+upInfo();
+}
+function dims(k){
+if(k==='cg'||!parts[k]||!parts[k].length)return '';
+const a=pend.rotation.x,b=slideMesh.position.x;pend.rotation.x=0;slideMesh.position.x=0;root.updateMatrixWorld(true);
+const bx=new THREE.Box3();parts[k].forEach(m=>bx.expandByObject(m));
+pend.rotation.x=a;slideMesh.position.x=b;root.updateMatrixWorld(true);
+const s=bx.getSize(new THREE.Vector3());
+return ' Size X '+Math.round(s.z*1000)+' × Y '+Math.round(s.x*1000)+' × Z '+Math.round(s.y*1000)+' mm.'}
+function upInfo(){
+const o=last,T={
+shell:'Shell: '+P.T+' mm polycarbonate, two hemispheres bolted at an inner flange. About '+o.shellM.toFixed(1)+' kg.',
+band:'Grip band: polyurethane, 2 mm or less, around the equator. Needed for traction.',
+axle:'Hollow axle: 25 mm OD, 3 mm wall, 6061-T6 aluminium, 0.5 kg. The camera cable runs through it.',
+hub:'Pole hubs: hubs and bearings let the shell turn about the axle. 1.0 kg with flange bolts.',
+pod:'Camera pod: passive, camera module only, '+P.POD+' mm outside the shell. The red ring marks the 152 mm (0.5 ft) limit.',
+motor:'Drive motors: two 24 V planetary gearmotors with 4:1 belt stages to the pole hubs. 1.4 kg with belts.',
+battery:'Battery: 6S3P Li-ion, 22.2 V, about 170 Wh, 40 A BMS. 1.3 kg with BMS.',
+elec:'Electronics: Raspberry Pi 5, motor drivers, IMU, converters, safety circuit and wiring. 1.0 kg.',
+ballast:'Fixed steel ballast: '+P.MB.toFixed(1)+' kg, low in the pendulum.',
+yoke:'Yoke plates: bolt to the axle and carry the pendulum parts. 1.3 kg with fasteners.',
+slide:'Sliding mass: '+P.MS.toFixed(1)+' kg on a lead-screw rail (0.8 kg with motor). Moving it sideways banks the ball to steer.',
+cg:'Combined CG: X '+Math.round(o.cgX*1000)+', Y '+Math.round(o.cgY*1000)+', Z '+Math.round(o.cgZ*1000)+' mm from the geometric centre.'};
+$('info').textContent=sel?T[sel]+dims(sel):info0;
+}
+let az=40,el=24,dist=1.55,taz=40,tel=24,tdist=1.55,lt=performance.now();
+const nd=a=>{while(a>180)a-=360;while(a<-180)a+=360;return a};
+function setView(k){const v=V[k];taz=v[0];tel=v[1];tdist=v[2];cross=v[3];auto.checked=false;setClip();[...vw.querySelectorAll('button[data-v]')].forEach(b=>b.classList.toggle('on',b.dataset.v===k))}
+const ptr=new Map();let pd=0;
+const pdist=()=>{const a=[...ptr.values()];return Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1])};
+cv.addEventListener('pointerdown',e=>{ptr.set(e.pointerId,[e.clientX,e.clientY]);cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing';if(ptr.size===2)pd=pdist()});
+cv.addEventListener('pointermove',e=>{const p=ptr.get(e.pointerId);if(!p)return;const dx=e.clientX-p[0],dy=e.clientY-p[1];ptr.set(e.pointerId,[e.clientX,e.clientY]);
+if(ptr.size===1){az-=dx*0.45;el=Math.max(-5,Math.min(89,el+dy*0.35));taz=az;tel=el}
+else if(ptr.size===2){const d=pdist();if(pd&&d)tdist=Math.max(0.9,Math.min(3,tdist*pd/d));pd=d}});
+const pup=e=>{ptr.delete(e.pointerId);if(!ptr.size)cv.style.cursor='grab'};
+cv.addEventListener('pointerup',pup);cv.addEventListener('pointercancel',pup);
+cv.addEventListener('dblclick',()=>setView('iso'));
+cv.addEventListener('wheel',e=>{e.preventDefault();tdist=Math.max(0.9,Math.min(3,tdist*Math.exp(e.deltaY*0.0012)))},{passive:false});
+$('zi').onclick=()=>{tdist=Math.max(0.9,tdist*0.85)};
+$('zo').onclick=()=>{tdist=Math.min(3,tdist/0.85)};
+$('shw').onchange=applyShell;
+$('sop').oninput=()=>{applyShell();hl()};
+$('rst').onclick=()=>{cfg.forEach(c=>{P[c[0]]=c[6];const i=$(c[0]);i.value=c[6];pct(i)});dirty=true};
+$('png').onclick=()=>{cv.toBlob(b=>{const u=URL.createObjectURL(b);$('out').innerHTML='<img src="'+u+'" style="width:100%;border-radius:12px"><div style="font-size:13px;margin-top:6px"><a href="'+u+'" download="spherical-robot-view.png">Download image (PNG)</a> or right-click the image to save it.</div>'})};
+$('rec').onclick=()=>{
+if(typeof MediaRecorder==='undefined'||!cv.captureStream){$('info').textContent='Recording is not supported in this browser. Use a screen recorder instead.';return}
+const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+const mr=new MediaRecorder(cv.captureStream(30),mime?{mimeType:mime,videoBitsPerSecond:4000000}:{}),ch=[],rb=$('rec');
+mr.ondataavailable=e=>{if(e.data.size)ch.push(e.data)};
+mr.onstop=()=>{const u=URL.createObjectURL(new Blob(ch,{type:'video/webm'}));$('out').innerHTML='<video src="'+u+'" controls loop autoplay muted style="width:100%;border-radius:12px"></video><div style="font-size:13px;margin-top:6px"><a href="'+u+'" download="spherical-robot-turntable.webm">Download video (WebM)</a> or right-click the video to save it.</div>';rb.textContent='Record video'};
+setView('iso');auto.checked=true;mr.start();rb.textContent='Recording 9 s…';
+setTimeout(()=>{mr.stop();auto.checked=false},9000)};
+function frame(t){
+const dt=Math.min(0.05,(t-lt)/1000);lt=t;
+if(dirty){dirty=false;update()}
+const tp=P.PHI*Math.PI/180+(drive?Math.sin(t/1000*6.28)*.012:0),ts=P.S/100;
+if(Math.abs(tp-cur.phi)>1e-4||Math.abs(ts-cur.s)>1e-4){cur.phi+=(tp-cur.phi)*0.3;cur.s+=(ts-cur.s)*0.3;pose()}
+else if(cur.phi!==tp||cur.s!==ts){cur.phi=tp;cur.s=ts;pose()}
+if(auto.checked&&!ptr.size){taz+=40*dt;az=taz}else{az+=nd(taz-az)*0.14}
+el+=(tel-el)*0.14;dist+=(tdist-dist)*0.14;
+const open=!document.body.classList.contains('min'),tx=open&&W>760?-165:0,ty=open&&W<=760?HH*.2:0;
+if(Math.abs(tx-ox)>.3||Math.abs(ty-oy)>.3){ox+=(tx-ox)*.12;oy+=(ty-oy)*.12;cam.setViewOffset(W,HH,ox,oy,W,HH);kick=3}
+if(drive){const v=.9;spin+=v/last.R*dt;travel+=v*dt;spinM.rotation.x=spin;grid.position.z=-(travel%.1)}
+const idle=!(drive||auto.checked||ptr.size||kick>0||Math.abs(taz-az)>.02||Math.abs(tel-el)>.02||Math.abs(tdist-dist)>.0005||Math.abs(tp-cur.phi)>1e-4||Math.abs(ts-cur.s)>1e-4);
+if(kick>0)kick--;
+if(idle){requestAnimationFrame(frame);return}
+const a=az*Math.PI/180,e=el*Math.PI/180;
+cam.position.set(tgt.x+dist*Math.sin(a)*Math.cos(e),tgt.y+dist*Math.sin(e),tgt.z+dist*Math.cos(a)*Math.cos(e));cam.lookAt(tgt);
+ren.setScissorTest(false);ren.setViewport(0,0,W,HH);ren.render(scene,cam);
+const gs=Math.round(Math.max(84,Math.min(130,W*0.17)));
+gc.position.copy(cam.position).sub(tgt).setLength(8);gc.up.copy(cam.up);gc.lookAt(0,0,0);
+ren.autoClear=false;ren.clearDepth();ren.setScissorTest(true);ren.setViewport(W-gs-8,8,gs,gs);ren.setScissor(W-gs-8,8,gs,gs);ren.render(gScene,gc);ren.setScissorTest(false);ren.autoClear=true;
+requestAnimationFrame(frame)}
+update();setView('iso');requestAnimationFrame(frame);
+
+$('drv').onclick=e=>{drive=!drive;e.target.classList.toggle('on',drive)};
+$('rmp').onclick=()=>{const v=Math.min(60,Math.round(last.sw||60));P.PHI=v;$('PHI').value=v;pct($('PHI'));dirty=true};
+['input','click','pointerdown','pointermove','wheel'].forEach(n=>addEventListener(n,()=>{kick=40},{passive:true}));
+const tg=()=>{document.body.classList.toggle('min');$('min').setAttribute('aria-expanded',!document.body.classList.contains('min'));kick=60};
+$('min').onclick=tg;$('tab').onclick=tg;
+addEventListener('keydown',e=>{if((e.key==='p'||e.key==='P')&&!/INPUT|TEXTAREA/.test(e.target.tagName))tg()});
+</script></body></html>
