@@ -1,7 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nandi ROBOT · Spherical robot 3D model</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#142033;--mut:#5b6b80;--line:#d3dde9;--acc:#1f7ae0;--accs:#dcebfd;--pan:rgba(255,255,255,.8);--bad:#d4262c}
 *{box-sizing:border-box;margin:0}
@@ -31,6 +30,15 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 #cards{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:14px 0}
 .card{background:#fff;border:1px solid var(--line);border-radius:11px;padding:7px 9px}
 .card small{display:block;font-size:11.5px;color:var(--mut)}.card b{display:block;font-size:15px;font-weight:600}.bad{color:var(--bad)}
+#cards .run-card{grid-column:span 1}
+.battery-lights{display:flex;gap:8px;align-items:center;margin-top:7px}
+.battery-led{width:13px;height:13px;border-radius:50%;background:#aeb7c2;box-shadow:inset 0 0 0 1px #8993a0}
+.battery-led.on.green{background:#19a765;box-shadow:0 0 8px #19a765}
+.battery-led.on.yellow{background:#e6ad18;box-shadow:0 0 8px #e6ad18}
+.battery-led.on.red{background:#d83238;box-shadow:0 0 8px #d83238}
+.battery-led.blink{animation:blink .5s steps(2,end) infinite}
+@keyframes blink{to{opacity:.25}}
+.run-status{min-height:20px;color:#9b451f;font-weight:600;margin:5px 0}
 #pt{display:flex;flex-wrap:wrap;gap:5px}#info{color:var(--mut);min-height:40px;margin:8px 0}
 #out img,#out video{width:100%;border-radius:12px;margin-top:6px}
 @media(max-width:760px){#side{left:8px;right:8px;top:auto;bottom:8px;width:auto;height:46vh}body.min #side{transform:translateY(calc(100% + 24px))}#tab{top:auto;bottom:14px;left:14px}}
@@ -42,19 +50,21 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 <aside id="side"><header><div><h1>Nandi ROBOT</h1><p>Spherical robot, live model</p></div><button id="min" aria-label="Minimize panel" aria-expanded="true" title="Minimize (P)">‹</button></header>
 <div id="vw"></div>
 <div class="lg"><span><i style="background:#e5484d"></i>X forward</span><span><i style="background:#2fa37a"></i>Y along axle</span><span><i style="background:#3b82f6"></i>Z up</span></div>
-<div id="sls"></div><div id="cards"></div><div id="pt"></div><div id="info"></div><div id="out"></div></aside>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<div id="sls"></div><div id="cards"></div><div id="pt"></div><div id="run-status" class="run-status" aria-live="polite"></div><div id="info"></div><div id="out"></div></aside>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 const $=i=>document.getElementById(i);
 if(typeof THREE==='undefined'){$('info').textContent='The 3D library could not load. Check your connection and reload.';throw new Error('no three');}
-let dirty=false,kick=30,drive=true,ox=0,oy=0,spin=0,travel=0,spinM,grid;
-const cfg=[['D','Outer diameter','ft',2,2.5,0.01,2.25,2],['T','Shell thickness','mm',2,6,0.5,3,1],['POD','Camera pod outside','mm',0,200,1,75,0],['PHI','Pendulum swing','°',-75,75,1,0,0],['S','Slider offset','cm',-15,15,0.5,0,1],['L','Pendulum CoM depth','m',0.18,0.28,0.001,0.233,3],['MB','Fixed ballast','kg',2,6,0.1,4,1],['MS','Sliding mass','kg',1,5,0.1,3,1],['TH','Ramp slope','°',0,25,1,15,0],['A','Acceleration','m/s²',0,1.5,0.1,0.5,1]];
+const OBSTACLE_STOPS=[20,45,70],TRACK_LENGTH=75,FIXED_DT=1/120,BATTERY_WH=170,ETA_DRIVE=0.7,P_ELECTRONICS=15,P_SLIDER=15;
+let dirty=false,kick=30,drive=true,ox=0,oy=0,spin=0,travel=0,spinM,grid,trackRoot,obstacleGroup,trackMeshes=[],route=null,routeReady=false,trackRay=new THREE.Raycaster(),runSpeed=0,runAccel=0,runDistance=0,energyJ=0,powerW=P_ELECTRONICS,waitRemaining=0,obstacleIndex=0,stoppedAt=null,overCapacity=false,wheelSlip=false,followMode=false,leds3d=[],statsClock=0,batteryEmpty=false,runStatus='',trackStatus='Loading track.glb...';
+const cfg=[['D','Outer diameter','ft',2,2.5,0.01,2.25,2],['T','Shell thickness','mm',2,6,0.5,3,1],['POD','Camera pod outside','mm',0,200,1,75,0],['PHI','Pendulum swing','°',-75,75,1,0,0],['S','Slider offset','cm',-15,15,0.5,0,1],['L','Pendulum CoM depth','m',0.18,0.28,0.001,0.233,3],['MB','Fixed ballast','kg',2,6,0.1,4,1],['MS','Sliding mass','kg',1,5,0.1,3,1],['TH','Ramp slope','°',0,25,1,15,0],['A','Acceleration','m/s²',0,1.5,0.1,0.5,1],['V','Max speed','m/s',0.1,3,0.1,1,1],['CRR','Rolling resistance Crr','',0.005,0.08,0.001,0.02,3],['MU','Surface friction mu','',0.2,1,0.01,0.7,2]];
 const P={},byk={};cfg.forEach(c=>{P[c[0]]=c[6];byk[c[0]]=c});
 const pct=i=>i.style.setProperty('--pct',((i.value-i.min)/(i.max-i.min)*100)+'%');
-[['Shell and camera pod',['D','T','POD']],['Pendulum',['PHI','S','L','MB','MS']],['Ramp case',['TH','A']]].forEach(g=>{
+[['Shell and camera pod',['D','T','POD']],['Pendulum',['PHI','S','L','MB','MS']],['Ramp case',['TH','A']],['Drive',['V','CRR','MU']]].forEach(g=>{
 const w=document.createElement('div');w.className='grp';w.innerHTML='<h3>'+g[0]+'</h3><div class="sl"></div>';$('sls').appendChild(w);
 g[1].forEach(k=>{const c=byk[k],d=document.createElement('div');d.className='row';d.innerHTML='<label for="'+k+'">'+c[1]+'</label><input type="range" id="'+k+'" min="'+c[3]+'" max="'+c[4]+'" step="'+c[5]+'" value="'+c[6]+'"><output id="o'+k+'"></output>';w.querySelector('.sl').appendChild(d);const inp=d.querySelector('input');pct(inp);inp.addEventListener('input',e=>{P[k]=parseFloat(e.target.value);pct(inp);dirty=true})})});
 ['Total mass','Shell mass','Centre of gravity','Overall size','Ramp torque demand','Pendulum capacity','Required swing','Camera pod outside','Slider clearance'].forEach((n,i)=>{const d=document.createElement('div');d.className='card';d.innerHTML='<small>'+n+'</small><b id="v'+i+'"></b><small id="s'+i+'"></small>';$('cards').appendChild(d)});
+$('cards').insertAdjacentHTML('beforeend','<div class="card run-card"><small>Battery</small><div class="battery-lights" role="group" aria-label="Battery state of charge"><span class="battery-led" id="led-green" aria-label="Battery above 50 percent" title="Above 50%"></span><span class="battery-led" id="led-yellow" aria-label="Battery between 20 and 50 percent" title="20-50%"></span><span class="battery-led" id="led-red" aria-label="Battery at or below 20 percent" title="20% or less"></span><b id="soc">100%</b></div><small id="voltage">25.2 V estimated</small></div><div class="card run-card"><small>Energy used</small><b id="wh-used">0.0 Wh</b></div><div class="card run-card"><small>Current power</small><b id="power">15 W</b></div><div class="card run-card"><small>Distance driven</small><b id="distance">0.00 / 75 m</b></div><div class="card run-card"><small>Estimated remaining range</small><b id="range">-- m</b></div><div class="card run-card"><small>Time left</small><b id="time-left">--</b></div>');
 const PK=['shell','band','axle','hub','pod','motor','battery','elec','ballast','yoke','slide','cg'];
 const PN=['Shell','Grip band','Hollow axle','Pole hubs','Camera pod','Motor + belt','Battery','Electronics','Steel ballast','Yoke plates','Sliding mass','CG'];
 let sel=null,parts={},mats=[],cp=[],cross=false,lastKey='',root,pend,slideMesh,cgMesh,cgLine,last={};
@@ -64,11 +74,11 @@ PK.forEach((k,i)=>{const b=document.createElement('button');b.textContent=PN[i];
 const V={iso:[40,24,1.55,false],cross:[-90,6,1.35,true],side:[90,4,1.55,false],top:[20,86,1.6,false]};
 const vw=$('vw');
 [['iso','Isometric'],['cross','Cross-section'],['side','Side'],['top','Top']].forEach(a=>{const b=document.createElement('button');b.textContent=a[1];b.dataset.v=a[0];b.onclick=()=>setView(a[0]);vw.appendChild(b)});
-vw.insertAdjacentHTML('beforeend','<button id="zi">Zoom in</button><button id="zo">Zoom out</button><label class="chk"><input type="checkbox" id="shw" checked>Show shell</label><label class="chk">Shell fill<input type="range" id="sop" min="0.1" max="0.8" step="0.05" value="0.35" style="width:84px;flex:none"></label><label class="chk"><input type="checkbox" id="auto">Auto rotate</label><button id="png">Save image</button><button id="rec">Record video</button><button id="rst">Reset parameters</button><button id="drv" class="on">Drive</button><button id="rmp">Use ramp swing</button>');
+vw.insertAdjacentHTML('beforeend','<button id="zi">Zoom in</button><button id="zo">Zoom out</button><label class="chk"><input type="checkbox" id="shw" checked>Show shell</label><label class="chk">Shell fill<input type="range" id="sop" min="0.1" max="0.8" step="0.05" value="0.35" style="width:84px;flex:none"></label><label class="chk"><input type="checkbox" id="auto">Auto rotate</label><button id="follow">Follow robot</button><button id="png">Save image</button><button id="rec">Record video</button><button id="rst">Reset parameters</button><button id="drv" class="on">Drive</button><button id="rmp">Use ramp swing</button><label class="chk"><input type="checkbox" id="obstacles" checked>Obstacles on/off</label><button id="resume">Resume</button><button id="reset-run">Reset run</button>');
 const auto=$('auto'),cv=$('cv'),sop=()=>parseFloat($('sop').value);
 const ren=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true,preserveDrawingBuffer:true});
 ren.localClippingEnabled=true;ren.setPixelRatio(Math.min(1.75,window.devicePixelRatio||1));
-const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(32,1.7,0.05,20),tgt=new THREE.Vector3(0,-0.02,0);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(32,1.7,0.05,250),tgt=new THREE.Vector3(0,-0.02,0);
 {const c=document.createElement('canvas');c.width=512;c.height=256;const g=c.getContext('2d'),gg=g.createLinearGradient(0,0,0,256);gg.addColorStop(0,'#cfe3ff');gg.addColorStop(.5,'#fff');gg.addColorStop(1,'#98a7bb');g.fillStyle=gg;g.fillRect(0,0,512,256);g.fillStyle='#fff';g.fillRect(60,50,90,50);g.fillRect(330,40,120,60);const t=new THREE.CanvasTexture(c);t.mapping=THREE.EquirectangularReflectionMapping;const pg=new THREE.PMREMGenerator(ren);scene.environment=pg.fromEquirectangular(t).texture;pg.dispose()}
 scene.fog=new THREE.Fog(0xe7eef7,2.4,4.6);scene.add(new THREE.AmbientLight(0xffffff,0.6));
 const dl=new THREE.DirectionalLight(0xffffff,0.7);dl.position.set(1,2,1.2);scene.add(dl);
@@ -110,7 +120,8 @@ const sb=Math.cbrt(P.MB/4),sm=Math.cbrt(P.MS/3);
 add('yoke',B(0.25,0.01,0.12),mk(0x7e8794),0,yb,0,pend);
 const bh=0.07*sb,bt=yb+0.005+bh;
 add('ballast',B(0.18*sb,bh,0.1*sb),mk(0x4a4f57),0,yb+0.005+bh/2,0,pend);
-add('battery',B(0.16,0.065,0.11),mk(0xf0a030),0,bt+0.0325,0,pend);
+add('battery',B(0.16,0.065,0.11),mk(0xf0a030),0,bt+0.0325,0,pend);leds3d=[];
+['green','yellow','red'].forEach((c,i)=>leds3d.push(add('battery',new THREE.SphereGeometry(0.007,12,10),mk({green:0x19a765,yellow:0xe6ad18,red:0xd83238}[c]),(i-1)*0.025,bt+0.0325,0.057,pend)));
 add('elec',B(0.14,0.035,0.1),mk(0x2f9e7a),0,bt+0.0825,0,pend);
 [-1,1].forEach(sx=>{add('motor',C(0.03,0.12),mk(0x1fb59a),sx*0.19,-0.09,0,pend,0,0,H);add('motor',C(0.045,0.02),mk(0x55606e),sx*0.265,0,0,pend,0,0,H);add('motor',C(0.015,0.02),mk(0x55606e),sx*0.265,-0.09,0,pend,0,0,H);[-1,1].forEach(sz=>{add('motor',B(0.012,0.09,0.004),mk(0x111111),sx*0.265,-0.045,sz*0.03,pend)})});
 add('slide',C(0.006,0.32),mk(0xb8c0cc),0,yb-0.005-0.02*sm,0,pend,0,0,H);
@@ -135,8 +146,8 @@ const R=P.D*0.3048/2,t=P.T/1000,g=9.81,l=P.L;
 const shellM=4*Math.PI*R*R*t*1200,near=shellM+1.8,mp=P.MB+P.MS+5.8,M=near+mp;
 const phi=P.PHI*Math.PI/180,th=P.TH*Math.PI/180;
 const cgX=mp*l*Math.sin(phi)/M,cgY=P.MS*(P.S/100)/M,cgZ=-mp*l*Math.cos(phi)/M;
-const dem=M*g*R*Math.sin(th)+M*P.A*R+(2/3)*shellM*R*P.A+0.03*M*g*R*Math.cos(th);
-const cap=mp*g*l,ratio=dem/cap,sw=ratio<=1?Math.asin(ratio)*180/Math.PI:NaN;
+const dem=M*g*R*Math.sin(th)+M*P.A*R+(2/3)*shellM*R*P.A+P.CRR*M*g*R*Math.cos(th);
+const cap=mp*g*l,ratio=dem/cap,maxPhi=Math.sin(Math.PI/3),over=dem>cap*maxPhi,sw=Math.asin(Math.max(-maxPhi,Math.min(maxPhi,ratio)))*180/Math.PI;
 const mu=Math.tan(th)+P.A/(g*Math.cos(th));
 const sm=Math.cbrt(P.MS/3),clr=(R-t)-Math.hypot(Math.abs(P.S/100)+0.03*sm,l+0.02+0.04*sm);
 last={M,mp,shellM,cgX,cgY,cgZ,R,t,sw};
@@ -148,12 +159,12 @@ cd(0,M.toFixed(1)+' kg','Pendulum '+mp.toFixed(1)+' kg',false);
 cd(1,shellM.toFixed(1)+' kg','Near centre '+near.toFixed(1)+' kg',false);
 cd(2,'X '+Math.round(cgX*1000)+' · Y '+Math.round(cgY*1000)+' · Z '+Math.round(cgZ*1000),'mm from geometric centre',false);
 cd(3,dX+' × '+dY+' × '+dX+' mm','X forward × Y lateral × Z up',false);
-cd(4,dem.toFixed(1)+' N·m','Needs μ ≥ '+mu.toFixed(2),false);
+cd(4,dem.toFixed(1)+' N·m',mu>P.MU?'Wheel slip':'Needs μ ≥ '+mu.toFixed(2),mu>P.MU);
 cd(5,cap.toFixed(1)+' N·m','m_p g l at 90°',false);
-cd(6,isNaN(sw)?'Over capacity':sw.toFixed(0)+'°','Software limit 60°',isNaN(sw)||sw>60);
+cd(6,over?'Over capacity':sw.toFixed(0)+'°','Software limit 60°',over);
 cd(7,P.POD+' mm','Limit 152 mm (0.5 ft)',P.POD>152.4);
 cd(8,Math.round(clr*1000)+' mm','Sliding mass to shell',clr<0);
-upInfo();
+upInfo();renderRunStats();
 }
 function dims(k){
 if(k==='cg'||!parts[k]||!parts[k].length)return '';
@@ -177,10 +188,83 @@ yoke:'Yoke plates: bolt to the axle and carry the pendulum parts. 1.3 kg with fa
 slide:'Sliding mass: '+P.MS.toFixed(1)+' kg on a lead-screw rail (0.8 kg with motor). Moving it sideways banks the ball to steer.',
 cg:'Combined CG: X '+Math.round(o.cgX*1000)+', Y '+Math.round(o.cgY*1000)+', Z '+Math.round(o.cgZ*1000)+' mm from the geometric centre.'};
 $('info').textContent=sel?T[sel]+dims(sel):info0;
+$('run-status').textContent=runStatus||trackStatus;
 }
-let az=40,el=24,dist=1.55,taz=40,tel=24,tdist=1.55,lt=performance.now();
+function renderRunStats(){
+const soc=Math.max(0,Math.min(1,1-energyJ/(BATTERY_WH*3600))),used=energyJ/3600,remainingWh=Math.max(0,BATTERY_WH-used),volts=19.8+5.4*soc,avgWhM=runDistance>0?used/runDistance:0,range=avgWhM>0?remainingWh/avgWhM:NaN,seconds=powerW>0?remainingWh*3600/powerW:NaN;
+$('soc').textContent=(soc*100).toFixed(0)+'%';$('voltage').textContent=volts.toFixed(1)+' V estimated';$('wh-used').textContent=used.toFixed(1)+' Wh';$('power').textContent=powerW.toFixed(0)+' W';$('distance').textContent=runDistance.toFixed(2)+' / '+TRACK_LENGTH+' m';$('range').textContent=Number.isFinite(range)?range.toFixed(0)+' m':'-- m';$('time-left').textContent=Number.isFinite(seconds)?(seconds>=3600?Math.floor(seconds/3600)+' h '+Math.floor(seconds%3600/60)+' min':Math.floor(seconds/60)+' min'):'--';
+const active=soc>0.5?'green':soc>0.2?'yellow':'red';['green','yellow','red'].forEach(color=>{const el=$('led-'+color);el.classList.toggle('on',color===active);el.classList.toggle(color,color===active);el.classList.toggle('blink',color==='red'&&soc<0.1)});
+leds3d.forEach((led,i)=>{const color=['green','yellow','red'][i],on=color===active;led.material.color.setHex(on?({green:0x19a765,yellow:0xe6ad18,red:0xd83238}[color]):0x68717b);led.material.emissive.setHex(on?({green:0x19a765,yellow:0xe6ad18,red:0xd83238}[color]):0x000000);led.material.emissiveIntensity=on?0.7:0;led.userData.blink=color==='red'&&soc<0.1});
+}
+function trackPointAt(distance){
+const u=Math.max(0,Math.min(1,distance/TRACK_LENGTH)),point=route.getPointAt(u),tangent=route.getTangentAt(u).normalize(),origin=point.clone().add(new THREE.Vector3(0,20,0));trackRay.set(origin,new THREE.Vector3(0,-1,0));trackRay.far=100;const hit=trackRay.intersectObjects(trackMeshes,true)[0];let normal=new THREE.Vector3(0,1,0);
+if(hit){point.y=hit.point.y;if(hit.face){normal.copy(hit.face.normal).applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();if(normal.y<0)normal.negate()}}
+return{point,tangent,normal};
+}
+function placeRobotAtDistance(distance){
+if(!routeReady)return;const p=trackPointAt(distance),forward=p.tangent.clone().addScaledVector(p.normal,-p.tangent.dot(p.normal)).normalize();if(forward.lengthSq()<1e-8)forward.set(0,0,1);const right=p.normal.clone().cross(forward).normalize();forward.copy(right).cross(p.normal).normalize();const basis=new THREE.Matrix4().makeBasis(right,p.normal,forward);root.position.copy(p.point).addScaledVector(p.normal,last.R||0.34);root.quaternion.setFromRotationMatrix(basis);root.updateMatrixWorld(true);
+}
+function roadRibbon(curve,start,end,width,material,offset,sideOffset){
+const steps=Math.max(2,Math.ceil((end-start)*4)),positions=[],indices=[];
+for(let i=0;i<=steps;i++){const distance=start+(end-start)*i/steps,p=curve.getPointAt(distance/TRACK_LENGTH),t=curve.getTangentAt(distance/TRACK_LENGTH).normalize(),side=new THREE.Vector3(t.z,0,-t.x).normalize();p.addScaledVector(side,sideOffset||0);p.y+=offset;const half=width/2,left=p.clone().addScaledVector(side,half),right=p.clone().addScaledVector(side,-half);positions.push(left.x,left.y,left.z,right.x,right.y,right.z);if(i){const a=(i-1)*2,b=a+1,c=i*2,d=c+1;indices.push(a,b,c,b,d,c)}}
+const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,material);mesh.receiveShadow=true;return mesh;
+}
+function addObstacleMarkers(){
+if(obstacleGroup){scene.remove(obstacleGroup);obstacleGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()})}obstacleGroup=new THREE.Group();
+OBSTACLE_STOPS.forEach((distance,index)=>{const u=distance/TRACK_LENGTH,p=route.getPointAt(u),t=route.getTangentAt(u).normalize(),side=new THREE.Vector3(t.z,0,-t.x).normalize(),cone=new THREE.Mesh(new THREE.ConeGeometry(0.14,0.42,10),new THREE.MeshStandardMaterial({color:0xf07818,roughness:0.72}));cone.position.copy(p).addScaledVector(side,index%2?0.4:-0.4);cone.position.y+=0.21;obstacleGroup.add(cone);const band=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.12,0.035,10),new THREE.MeshStandardMaterial({color:0xf4d9a0}));band.position.copy(cone.position);band.position.y+=0.05;obstacleGroup.add(band)});
+scene.add(obstacleGroup);
+}
+function buildProceduralRoad(reason){
+if(trackRoot){scene.remove(trackRoot);trackRoot.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()})}
+trackRoot=new THREE.Group();scene.add(trackRoot);
+const points=[new THREE.Vector3(0,0,0),new THREE.Vector3(0,0.08,12),new THREE.Vector3(2.5,0.18,24),new THREE.Vector3(4.2,0.3,36),new THREE.Vector3(3.2,0.43,47),new THREE.Vector3(0,0.58,58),new THREE.Vector3(-2.4,0.75,68),new THREE.Vector3(-2,0.9,78)];
+const source=new THREE.CatmullRomCurve3(points,false,'centripetal');source.arcLengthDivisions=2000;let scale=TRACK_LENGTH/source.getLength();const bounds=new THREE.Box3().setFromPoints(points),cx=(bounds.min.x+bounds.max.x)/2,cz=bounds.min.z;
+const makeRoute=s=>new THREE.CatmullRomCurve3(points.map(p=>p.clone().multiplyScalar(s).add(new THREE.Vector3(-cx*s,0,-cz*s))),false,'centripetal');route=makeRoute(scale);route.arcLengthDivisions=2000;scale*=TRACK_LENGTH/route.getLength();route=makeRoute(scale);route.arcLengthDivisions=2000;route.updateArcLengths();
+trackMeshes=[];const asphalt=new THREE.MeshStandardMaterial({color:0x35383c,roughness:0.94,metalness:0.02,side:THREE.DoubleSide}),white=new THREE.MeshStandardMaterial({color:0xf4f5f0,roughness:0.75,side:THREE.DoubleSide});
+const road=roadRibbon(route,0,TRACK_LENGTH,1.2,asphalt,0);trackRoot.add(road);trackMeshes.push(road);
+for(const sideSign of [-1,1])trackRoot.add(roadRibbon(route,0,TRACK_LENGTH,0.045,white,0.012,sideSign*0.55));
+for(let d=0;d<TRACK_LENGTH;d+=4){trackRoot.add(roadRibbon(route,d,Math.min(TRACK_LENGTH,d+2.1),0.035,white,0.014))}
+for(let d=0;d<TRACK_LENGTH;d+=0.6){const u=Math.min(1,(d+0.3)/TRACK_LENGTH),p=route.getPointAt(u),t=route.getTangentAt(u).normalize(),side=new THREE.Vector3(t.z,0,-t.x).normalize();[-1,1].forEach(sign=>{const curb=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.09,0.48),new THREE.MeshStandardMaterial({color:Math.floor(d/0.6)%2?0xf4f1e8:0xd84338,roughness:0.82}));curb.position.copy(p).addScaledVector(side,sign*0.65);curb.position.y+=0.045;curb.rotation.y=Math.atan2(t.x,t.z);trackRoot.add(curb)})}
+trackRoot.updateMatrixWorld(true);if(grid)grid.visible=false;scene.fog.near=70;scene.fog.far=180;routeReady=true;trackStatus=reason?'Procedural road active; '+reason+'.':'Procedural road active.';runStatus='';addObstacleMarkers();placeRobotAtDistance(runDistance);renderRunStats();upInfo();kick=40;
+}
+function loadTrack(){
+if(!THREE.GLTFLoader){buildProceduralRoad('GLTFLoader unavailable');return}
+new THREE.GLTFLoader().load('track.glb',gltf=>{
+trackRoot=new THREE.Group();scene.add(trackRoot);trackRoot.add(gltf.scene);trackRoot.updateMatrixWorld(true);
+let pathObject=null;gltf.scene.traverse(o=>{if(!pathObject&&/^(path|centerline)$/i.test(o.name||''))pathObject=o});
+if(!pathObject){buildProceduralRoad('track.glb has no path/centerline polyline');return}
+const raw=[];pathObject.traverse(o=>{if(!o.isLine)return;const a=o.geometry&&o.geometry.attributes&&o.geometry.attributes.position;if(!a)return;const index=o.geometry.index&&o.geometry.index.array,count=index?index.length:a.count;for(let i=0;i<count;i++){const v=new THREE.Vector3().fromBufferAttribute(a,index?index[i]:i);o.localToWorld(v);if(!raw.length||raw[raw.length-1].distanceToSquared(v)>1e-8)raw.push(v)}});
+if(raw.length<2){buildProceduralRoad('track.glb centreline is not an ordered line');return}
+const rawCurve=new THREE.CatmullRomCurve3(raw,false,'centripetal');rawCurve.arcLengthDivisions=2000;const rawLength=rawCurve.getLength();if(!Number.isFinite(rawLength)||rawLength<=0){buildProceduralRoad('track.glb centreline has no measurable length');return}
+const pathBounds=new THREE.Box3().setFromPoints(raw),trackBounds=new THREE.Box3().setFromObject(gltf.scene),cx=(pathBounds.min.x+pathBounds.max.x)/2,cz=(pathBounds.min.z+pathBounds.max.z)/2,baseY=trackBounds.isEmpty()?pathBounds.min.y:trackBounds.min.y;let scale=TRACK_LENGTH/rawLength;
+const makeRoute=s=>new THREE.CatmullRomCurve3(raw.map(v=>v.clone().multiplyScalar(s).add(new THREE.Vector3(-cx*s,-baseY*s,-cz*s))),false,'centripetal');route=makeRoute(scale);route.arcLengthDivisions=2000;scale*=TRACK_LENGTH/route.getLength();route=makeRoute(scale);route.arcLengthDivisions=2000;route.updateArcLengths();
+trackRoot.scale.setScalar(scale);trackRoot.position.set(-cx*scale,-baseY*scale,-cz*scale);trackRoot.updateMatrixWorld(true);
+trackMeshes=[];gltf.scene.traverse(o=>{if(!o.isMesh)return;let inPath=false;for(let p=o;p;p=p.parent)if(p===pathObject){inPath=true;break}if(!inPath)trackMeshes.push(o)});pathObject.visible=false;
+routeReady=true;grid.visible=false;scene.fog.near=70;scene.fog.far=180;trackStatus='Track loaded. Centreline scaled to exactly 75 m.';runStatus='';addObstacleMarkers();placeRobotAtDistance(0);renderRunStats();upInfo();kick=40;
+},undefined,error=>buildProceduralRoad('track.glb could not be loaded'));
+}
+function simulateStep(dt){
+if(!drive||!routeReady||batteryEmpty)return;
+const targetSlider=P.S/100,nextSlider=cur.s+(targetSlider-cur.s)*Math.min(1,dt*8),sliderPower=Math.abs(nextSlider-cur.s)>1e-5?P_SLIDER:0;cur.s=nextSlider;
+if(stoppedAt!==null){waitRemaining-=dt;if(waitRemaining<=0){obstacleIndex++;stoppedAt=null;runStatus='';}else{runSpeed=0;runAccel=0;powerW=P_ELECTRONICS+sliderPower;energyJ=Math.min(BATTERY_WH*3600,energyJ+powerW*dt);if(energyJ>=BATTERY_WH*3600){batteryEmpty=true;drive=false;$('drv').classList.remove('on');runStatus='Battery empty';renderRunStats();upInfo()}return}}
+while(obstacleIndex<OBSTACLE_STOPS.length&&runDistance>=OBSTACLE_STOPS[obstacleIndex])obstacleIndex++;
+const state=trackPointAt(runDistance),slope=Math.atan2(state.tangent.y,Math.hypot(state.tangent.x,state.tangent.z)),maxAccel=Math.max(0,P.A),endTarget=TRACK_LENGTH,obstaclesOn=$('obstacles').checked;let stopTarget=Infinity;
+if(obstaclesOn&&obstacleIndex<OBSTACLE_STOPS.length)stopTarget=Math.max(runDistance,OBSTACLE_STOPS[obstacleIndex]-0.5);
+const target=Math.min(endTarget,stopTarget),remaining=Math.max(0,target-runDistance),profileSpeed=Math.min(P.V,Math.sqrt(2*maxAccel*remaining)),requested=maxAccel===0?0:Math.max(-maxAccel,Math.min(maxAccel,(profileSpeed-runSpeed)/dt)),R=last.R||0.34,M=last.M||20,shellM=last.shellM||4,mp=last.mp||12,inertia=(M+(2/3)*shellM)*R,resist=M*9.81*R*Math.sin(slope)+P.CRR*M*9.81*R*Math.cos(slope),requiredMu=Math.tan(slope)+requested/(9.81*Math.cos(slope)),capacity=mp*9.81*P.L*Math.sin(Math.PI/3);
+wheelSlip=requiredMu>P.MU;runAccel=wheelSlip?requested*P.MU/requiredMu:requested;let torque=inertia*runAccel+resist;
+overCapacity=Math.abs(torque)>capacity;if(torque>capacity)runAccel=(capacity-resist)/inertia;else if(torque< -capacity)runAccel=(-capacity-resist)/inertia;runAccel=Math.max(-maxAccel,Math.min(maxAccel,runAccel));
+const oldSpeed=runSpeed;runSpeed=Math.max(0,Math.min(P.V,runSpeed+runAccel*dt));runDistance=Math.min(target,runDistance+(oldSpeed+runSpeed)*0.5*dt);travel=runDistance;spin=runDistance/R;spinM.rotation.x=spin;
+const force=Math.max(0,M*runAccel+M*9.81*Math.sin(slope)+P.CRR*M*9.81*Math.cos(slope)+(2/3)*shellM*runAccel);powerW=force*runSpeed/ETA_DRIVE+P_ELECTRONICS+sliderPower;energyJ=Math.min(BATTERY_WH*3600,energyJ+powerW*dt);
+const phiDenom=mp*9.81*P.L,phiTorque=inertia*runAccel+resist;cur.phi=phiDenom?Math.asin(Math.max(-Math.sin(Math.PI/3),Math.min(Math.sin(Math.PI/3),phiTorque/phiDenom))):0;
+placeRobotAtDistance(runDistance);pose();
+if(runDistance>=target-1e-4&&runSpeed<0.02){runSpeed=0;if(target<TRACK_LENGTH&&obstaclesOn&&obstacleIndex<OBSTACLE_STOPS.length){runDistance=target;stoppedAt=OBSTACLE_STOPS[obstacleIndex];waitRemaining=3;runStatus='Stopped: obstacle at '+stoppedAt+' m';}else if(runDistance>=TRACK_LENGTH-1e-4){runDistance=TRACK_LENGTH;drive=false;$('drv').classList.remove('on');runStatus='Route complete';renderRunStats();upInfo()}}
+if(stoppedAt===null&&runDistance<TRACK_LENGTH&&!batteryEmpty){if(overCapacity)runStatus='Over capacity';else if(wheelSlip)runStatus='Wheel slip';else if(runStatus==='Over capacity'||runStatus==='Wheel slip')runStatus=''}
+if(energyJ>=BATTERY_WH*3600){batteryEmpty=true;runSpeed=0;drive=false;$('drv').classList.remove('on');runStatus='Battery empty';renderRunStats();upInfo()}
+statsClock+=dt;if(statsClock>=0.1){statsClock=0;renderRunStats();upInfo()}
+}
+let az=40,el=24,dist=1.55,taz=40,tel=24,tdist=1.55,lt=performance.now(),simAccumulator=0;
 const nd=a=>{while(a>180)a-=360;while(a<-180)a+=360;return a};
-function setView(k){const v=V[k];taz=v[0];tel=v[1];tdist=v[2];cross=v[3];auto.checked=false;setClip();[...vw.querySelectorAll('button[data-v]')].forEach(b=>b.classList.toggle('on',b.dataset.v===k))}
+function setView(k){const v=V[k];taz=v[0];tel=v[1];tdist=v[2];cross=v[3];auto.checked=false;followMode=false;$('follow').classList.remove('on');setClip();[...vw.querySelectorAll('button[data-v]')].forEach(b=>b.classList.toggle('on',b.dataset.v===k))}
 const ptr=new Map();let pd=0;
 const pdist=()=>{const a=[...ptr.values()];return Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1])};
 cv.addEventListener('pointerdown',e=>{ptr.set(e.pointerId,[e.clientX,e.clientY]);cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing';if(ptr.size===2)pd=pdist()});
@@ -208,15 +292,19 @@ setTimeout(()=>{mr.stop();auto.checked=false},9000)};
 function frame(t){
 const dt=Math.min(0.05,(t-lt)/1000);lt=t;
 if(dirty){dirty=false;update()}
-const tp=P.PHI*Math.PI/180+(drive?Math.sin(t/1000*6.28)*.012:0),ts=P.S/100;
-if(Math.abs(tp-cur.phi)>1e-4||Math.abs(ts-cur.s)>1e-4){cur.phi+=(tp-cur.phi)*0.3;cur.s+=(ts-cur.s)*0.3;pose()}
-else if(cur.phi!==tp||cur.s!==ts){cur.phi=tp;cur.s=ts;pose()}
+if(routeReady&&drive){simAccumulator=Math.min(0.25,simAccumulator+dt);while(simAccumulator>=FIXED_DT){simulateStep(FIXED_DT);simAccumulator-=FIXED_DT}}
+const tp=routeReady&&drive?cur.phi:P.PHI*Math.PI/180+(drive?Math.sin(t/1000*6.28)*.012:0),ts=P.S/100;
+if(!(routeReady&&drive)&&(Math.abs(tp-cur.phi)>1e-4||Math.abs(ts-cur.s)>1e-4)){cur.phi+=(tp-cur.phi)*0.3;cur.s+=(ts-cur.s)*0.3;pose()}
+else if(!(routeReady&&drive)&&(cur.phi!==tp||cur.s!==ts)){cur.phi=tp;cur.s=ts;pose()}
+if(followMode&&routeReady)tgt.copy(root.position);
 if(auto.checked&&!ptr.size){taz+=40*dt;az=taz}else{az+=nd(taz-az)*0.14}
 el+=(tel-el)*0.14;dist+=(tdist-dist)*0.14;
 const open=!document.body.classList.contains('min'),tx=open&&W>760?-165:0,ty=open&&W<=760?HH*.2:0;
 if(Math.abs(tx-ox)>.3||Math.abs(ty-oy)>.3){ox+=(tx-ox)*.12;oy+=(ty-oy)*.12;cam.setViewOffset(W,HH,ox,oy,W,HH);kick=3}
-if(drive){const v=.9;spin+=v/last.R*dt;travel+=v*dt;spinM.rotation.x=spin;grid.position.z=-(travel%.1)}
-const idle=!(drive||auto.checked||ptr.size||kick>0||Math.abs(taz-az)>.02||Math.abs(tel-el)>.02||Math.abs(tdist-dist)>.0005||Math.abs(tp-cur.phi)>1e-4||Math.abs(ts-cur.s)>1e-4);
+if(drive&&!routeReady){const v=.9;spin+=v/last.R*dt;travel+=v*dt;spinM.rotation.x=spin;grid.position.z=-(travel%.1)}
+if(leds3d[2]&&leds3d[2].userData.blink){const lit=Math.sin(t*0.012)>0;leds3d[2].material.color.setHex(lit?0xd83238:0x353535);leds3d[2].material.emissiveIntensity=lit?0.8:0.03}
+const blinking=energyJ/(BATTERY_WH*3600)>0.9,followMoving=followMode&&routeReady&&drive;
+const idle=!(drive||auto.checked||ptr.size||kick>0||blinking||followMoving||Math.abs(taz-az)>.02||Math.abs(tel-el)>.02||Math.abs(tdist-dist)>.0005||Math.abs(tp-cur.phi)>1e-4||Math.abs(ts-cur.s)>1e-4);
 if(kick>0)kick--;
 if(idle){requestAnimationFrame(frame);return}
 const a=az*Math.PI/180,e=el*Math.PI/180;
@@ -228,10 +316,16 @@ ren.autoClear=false;ren.clearDepth();ren.setScissorTest(true);ren.setViewport(W-
 requestAnimationFrame(frame)}
 update();setView('iso');requestAnimationFrame(frame);
 
-$('drv').onclick=e=>{drive=!drive;e.target.classList.toggle('on',drive)};
+$('drv').onclick=e=>{if(batteryEmpty||runDistance>=TRACK_LENGTH)return;drive=!drive;e.target.classList.toggle('on',drive);kick=20};
+$('follow').onclick=e=>{followMode=!followMode;e.currentTarget.classList.toggle('on',followMode);auto.checked=false;if(followMode&&routeReady){tdist=Math.max(2,last.R*8);taz=az;tel=Math.max(15,Math.min(55,el))}kick=30};
+$('resume').onclick=()=>{if(stoppedAt!==null){obstacleIndex++;stoppedAt=null;waitRemaining=0;runStatus=''}if(!batteryEmpty&&runDistance<TRACK_LENGTH){drive=true;$('drv').classList.add('on')}kick=30};
+$('obstacles').onchange=()=>{if(!$('obstacles').checked&&stoppedAt!==null){obstacleIndex++;stoppedAt=null;waitRemaining=0;runStatus='';drive=true;$('drv').classList.add('on')}while(obstacleIndex<OBSTACLE_STOPS.length&&runDistance>=OBSTACLE_STOPS[obstacleIndex])obstacleIndex++;kick=20};
+$('reset-run').onclick=()=>{runDistance=0;travel=0;spin=0;runSpeed=0;runAccel=0;energyJ=0;powerW=P_ELECTRONICS;waitRemaining=0;obstacleIndex=0;stoppedAt=null;overCapacity=false;batteryEmpty=false;statsClock=0;simAccumulator=0;cur.phi=0;cur.s=P.S/100;runStatus='';drive=true;$('drv').classList.add('on');spinM.rotation.x=0;if(routeReady)placeRobotAtDistance(0);renderRunStats();upInfo();kick=40};
 $('rmp').onclick=()=>{const v=Math.min(60,Math.round(last.sw||60));P.PHI=v;$('PHI').value=v;pct($('PHI'));dirty=true};
 ['input','click','pointerdown','pointermove','wheel'].forEach(n=>addEventListener(n,()=>{kick=40},{passive:true}));
 const tg=()=>{document.body.classList.toggle('min');$('min').setAttribute('aria-expanded',!document.body.classList.contains('min'));kick=60};
 $('min').onclick=tg;$('tab').onclick=tg;
 addEventListener('keydown',e=>{if((e.key==='p'||e.key==='P')&&!/INPUT|TEXTAREA/.test(e.target.tagName))tg()});
+loadTrack();
+/* Physical assumptions for tuning: eta_drive = 0.7, Crr default = 0.02, P_electronics = 15 W, surface mu default = 0.7. */
 </script></body></html>
